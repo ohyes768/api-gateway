@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8010:8000"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TIMEOUT=${TIMEOUT:-30}
+      - A_STOCK_SERVICE_URL=${A_STOCK_SERVICE_URL:-http://a-stock-service:8001}
+      - HK_STOCK_SERVICE_URL=${HK_STOCK_SERVICE_URL:-http://hk-stock-service:8002}
+      - NEWS_ANALYSIS_SERVICE_URL=${NEWS_ANALYSIS_SERVICE_URL:-http://news-analysis-service:8030}
+    networks:
+      - api-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  api-network:
+    driver: bridge

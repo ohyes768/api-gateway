@@ -42,7 +42,12 @@ class Config:
 
     def _load_services_config(self, config_path: str):
         """加载服务配置文件"""
+        # 如果是相对路径，则基于项目根目录（src 的父目录）
         config_file = Path(config_path)
+        if not config_file.is_absolute():
+            # 获取项目根目录（src/config.py 的父目录的父目录）
+            project_root = Path(__file__).parent.parent
+            config_file = project_root / config_path
 
         # 严格模式：配置文件必须存在
         if not config_file.exists():

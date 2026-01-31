@@ -52,7 +52,10 @@ class Config:
         # 严格模式：配置文件必须存在
         if not config_file.exists():
             raise FileNotFoundError(
-                f"配置文件不存在: {config_path}\n"
+                f"配置文件不存在: {config_file}\n"
+                f"原始路径: {config_path}\n"
+                f"项目根目录: {project_root if not config_file.is_absolute() else 'N/A (绝对路径)'}\n"
+                f"当前工作目录: {Path.cwd()}\n"
                 f"请创建配置文件并配置服务信息。"
             )
 

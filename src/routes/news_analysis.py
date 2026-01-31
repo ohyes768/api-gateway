@@ -2,7 +2,7 @@
 新闻分析服务路由
 """
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException, status
 
 from src.config import config
 from src.utils.proxy import proxy_request
@@ -21,9 +21,21 @@ async def analyze_news(text: str = Body(..., embed=True)) -> dict:
 
     Returns:
         dict: 新闻分析结果
+
+    Raises:
+        HTTPException: 服务未启用或不可用时
     """
+    # 获取服务 URL
+    service_url = config.get_service_url("news_analysis")
+
+    if not service_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="新闻分析服务未启用或不可用"
+        )
+
     return await proxy_request(
-        service_url=config.get_service_url("news_analysis"),
+        service_url=service_url,
         service_name="新闻分析",
         path="/api/analyze",
         method="POST",

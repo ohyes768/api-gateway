@@ -1,0 +1,33 @@
+# API Gateway 服务配置
+# 修改此文件后需要重启网关服务
+
+services:
+  # 新闻分析服务
+  news_analysis:
+    url: http://news-analysis-service:8030
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/news-analysis
+        method: POST
+        backend_path: /api/analyze
+
+  # A股新股信息服务
+  a_stock:
+    url: http://a-stock-service:8001
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/a-stock
+        method: GET
+        backend_path: /api/stocks
+
+  # 港股新股信息服务
+  hk_stock:
+    url: http://hk-stock-service:8002
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/hk-stock
+        method: GET
+        backend_path: /api/stocks

@@ -6,7 +6,7 @@
 - [本地开发部署](#本地开发部署)
 - [Docker 部署](#docker-部署)
 - [生产环境部署](#生产环境部署)
-- [环境变量配置](#环境变量配置)
+- [配置管理](#配置管理)
 - [监控和日志](#监控和日志)
 - [故障排查](#故障排查)
 
@@ -72,26 +72,54 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-### 5. 配置环境变量
-
-复制环境变量示例文件：
+### 5. 创建配置文件
 
 ```bash
-cp .env.example .env
+cp config/services.yaml.example config/services.yaml
 ```
 
-编辑 `.env` 文件，配置后端服务地址：
+编辑 `config/services.yaml`，配置后端服务地址：
+
+```yaml
+services:
+  a_stock:
+    url: http://localhost:8001
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/a-stock
+        method: GET
+        backend_path: /api/stocks
+
+  hk_stock:
+    url: http://localhost:8002
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/hk-stock
+        method: GET
+        backend_path: /api/stocks
+
+  news_analysis:
+    url: http://localhost:8030
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/news-analysis
+        method: POST
+        backend_path: /api/analyze
+```
+
+### 6. 配置环境变量
+
+创建 `.env` 文件：
 
 ```env
 LOG_LEVEL=INFO
 TIMEOUT=30
-
-A_STOCK_SERVICE_URL=http://localhost:8001
-HK_STOCK_SERVICE_URL=http://localhost:8002
-NEWS_ANALYSIS_SERVICE_URL=http://localhost:8030
 ```
 
-### 6. 启动服务
+### 7. 启动服务
 
 ```bash
 uvicorn src.main:app --host 0.0.0.0 --port 8010 --reload
@@ -115,11 +143,13 @@ docker build -t api-gateway:latest .
 docker run -d \
   --name api-gateway \
   -p 8010:8000 \
-  -e A_STOCK_SERVICE_URL=http://a-stock-service:8001 \
-  -e HK_STOCK_SERVICE_URL=http://hk-stock-service:8002 \
-  -e NEWS_ANALYSIS_SERVICE_URL=http://news-analysis-service:8030 \
+  -v $(pwd)/config:/app/config \
+  -e LOG_LEVEL=INFO \
+  -e TIMEOUT=30 \
   api-gateway:latest
 ```
+
+**注意**: 需要挂载 `config/` 目录到容器中。
 
 ### 使用 Docker Compose
 
@@ -155,24 +185,54 @@ docker-compose restart api-gateway
 
 #### 1. 准备配置文件
 
-创建生产环境配置 `.env.production`:
+创建生产环境配置 `config/services.yaml`：
+
+```yaml
+services:
+  a_stock:
+    url: http://a-stock-service:8001
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/a-stock
+        method: GET
+        backend_path: /api/stocks
+
+  hk_stock:
+    url: http://hk-stock-service:8002
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/hk-stock
+        method: GET
+        backend_path: /api/stocks
+
+  news_analysis:
+    url: http://news-analysis-service:8030
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/news-analysis
+        method: POST
+        backend_path: /api/analyze
+```
+
+#### 2. 配置环境变量
+
+创建 `.env.production`:
 
 ```env
 LOG_LEVEL=WARNING
 TIMEOUT=60
-
-A_STOCK_SERVICE_URL=http://a-stock-service:8001
-HK_STOCK_SERVICE_URL=http://hk-stock-service:8002
-NEWS_ANALYSIS_SERVICE_URL=http://news-analysis-service:8030
 ```
 
-#### 2. 使用生产配置启动
+#### 3. 使用生产配置启动
 
 ```bash
 docker-compose --env-file .env.production up -d
 ```
 
-#### 3. 配置反向代理（Nginx）
+#### 4. 配置反向代理（Nginx）
 
 创建 Nginx 配置文件 `/etc/nginx/sites-available/api-gateway`:
 
@@ -208,7 +268,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-#### 4. 配置 SSL（可选）
+#### 5. 配置 SSL（可选）
 
 使用 Let's Encrypt 免费证书：
 
@@ -219,7 +279,30 @@ sudo certbot --nginx -d api.yourdomain.com
 
 ### 方案二：Kubernetes 部署
 
-#### 1. 创建 Deployment
+#### 1. 创建 ConfigMap
+
+`k8s/configmap.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+data:
+  services.yaml: |
+    services:
+      a_stock:
+        url: http://a-stock-service:8001
+        enabled: true
+        health_path: /health
+        routes:
+          - path: /api/a-stock
+            method: GET
+            backend_path: /api/stocks
+      # ... 其他服务配置
+```
+
+#### 2. 创建 Deployment
 
 `k8s/deployment.yaml`:
 
@@ -248,12 +331,13 @@ spec:
           value: "WARNING"
         - name: TIMEOUT
           value: "60"
-        - name: A_STOCK_SERVICE_URL
-          value: "http://a-stock-service:8001"
-        - name: HK_STOCK_SERVICE_URL
-          value: "http://hk-stock-service:8002"
-        - name: NEWS_ANALYSIS_SERVICE_URL
-          value: "http://news-analysis-service:8030"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+      volumes:
+      - name: config
+        configMap:
+          name: api-gateway-config
         livenessProbe:
           httpGet:
             path: /health
@@ -268,7 +352,7 @@ spec:
           periodSeconds: 5
 ```
 
-#### 2. 创建 Service
+#### 3. 创建 Service
 
 `k8s/service.yaml`:
 
@@ -287,7 +371,7 @@ spec:
   type: LoadBalancer
 ```
 
-#### 3. 部署
+#### 4. 部署
 
 ```bash
 kubectl apply -f k8s/
@@ -309,6 +393,8 @@ Type=simple
 User=www-data
 WorkingDirectory=/opt/api-gateway
 Environment="PATH=/opt/api-gateway/.venv/bin"
+Environment="LOG_LEVEL=WARNING"
+Environment="TIMEOUT=60"
 ExecStart=/opt/api-gateway/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8010
 Restart=always
 RestartSec=10
@@ -333,17 +419,34 @@ sudo systemctl status api-gateway
 
 ---
 
-## 环境变量配置
+## 配置管理
 
-### 配置项说明
+### 服务配置文件
+
+**位置**: `config/services.yaml`
+
+**核心配置结构**:
+
+```yaml
+services:
+  <service_name>:
+    url: <backend_service_url>
+    enabled: true|false
+    health_path: /health
+    routes:
+      - path: /api/gateway-path
+        method: GET|POST|PUT|DELETE|PATCH
+        backend_path: /api/backend-path
+```
+
+### 环境变量配置
 
 | 变量名 | 必填 | 默认值 | 说明 |
 |--------|------|--------|------|
 | LOG_LEVEL | 否 | INFO | 日志级别：DEBUG, INFO, WARNING, ERROR |
 | TIMEOUT | 否 | 30 | 请求超时时间（秒） |
-| A_STOCK_SERVICE_URL | 是 | http://a-stock-service:8001 | A股服务地址 |
-| HK_STOCK_SERVICE_URL | 是 | http://hk-stock-service:8002 | 港股服务地址 |
-| NEWS_ANALYSIS_SERVICE_URL | 是 | http://news-analysis-service:8030 | 新闻分析服务地址 |
+
+**注意**: 后端服务 URL 现在通过 `config/services.yaml` 配置，不再使用环境变量。
 
 ### 配置建议
 
@@ -357,6 +460,27 @@ TIMEOUT=30
 ```env
 LOG_LEVEL=WARNING
 TIMEOUT=60
+```
+
+### 添加新服务
+
+**步骤**:
+
+1. 编辑 `config/services.yaml`
+2. 添加服务配置块
+3. 重启网关服务
+
+**示例**:
+
+```bash
+# 1. 编辑配置
+vi config/services.yaml
+
+# 2. 重启服务
+docker-compose restart api-gateway
+
+# 3. 验证
+curl http://localhost:8010/api/new-service
 ```
 
 ---
@@ -417,14 +541,11 @@ kubectl logs -f deployment/api-gateway
 
 #### 1. 服务无法启动
 
-**检查端口占用**:
+**检查配置文件**:
 
 ```bash
-# Linux / macOS
-lsof -i :8010
-
-# Windows
-netstat -ano | findstr :8010
+# 验证 YAML 格式
+python -c "import yaml; yaml.safe_load(open('config/services.yaml'))"
 ```
 
 **检查日志**:
@@ -432,6 +553,12 @@ netstat -ano | findstr :8010
 ```bash
 docker-compose logs api-gateway
 ```
+
+**常见错误**:
+
+- `配置文件不存在`: 确保 `config/services.yaml` 存在
+- `YAML 格式错误`: 检查 YAML 语法
+- `服务不可达`: 检查后端服务是否运行
 
 #### 2. 请求超时
 
@@ -456,15 +583,40 @@ curl http://a-stock-service:8001/api/stocks
 **原因**:
 - 后端服务 URL 配置错误
 - 后端服务崩溃
+- 服务已被禁用（`enabled: false`）
 - 网络分区
 
 **解决方案**:
 
-1. 验证环境变量配置
-2. 检查后端服务日志
-3. 测试网络连接
+1. 检查 `config/services.yaml` 中的配置
+2. 检查服务 `enabled` 状态
+3. 检查后端服务日志
+4. 测试网络连接
 
-#### 4. 高 CPU/内存占用
+#### 4. 配置文件错误
+
+**症状**: 网关启动失败，日志显示配置错误
+
+**检查清单**:
+
+- [ ] YAML 语法正确
+- [ ] 必填字段完整（`url`, `routes`）
+- [ ] URL 格式正确（包含 `http://` 或 `https://`）
+- [ ] 路由路径以 `/` 开头
+
+**示例验证**:
+
+```python
+import yaml
+from pathlib import Path
+
+config_file = Path("config/services.yaml")
+with open(config_file) as f:
+    config = yaml.safe_load(f)
+    print(config)
+```
+
+#### 5. 高 CPU/内存占用
 
 **原因**:
 - 请求量过大
@@ -532,6 +684,7 @@ services:
 4. **速率限制**: 防止 DDoS 攻击
 5. **日志脱敏**: 避免记录敏感信息
 6. **定期更新**: 及时更新依赖包和基础镜像
+7. **配置文件权限**: 限制配置文件访问权限
 
 ---
 
@@ -539,11 +692,11 @@ services:
 
 ### 配置备份
 
-备份 `.env` 文件和 Nginx 配置：
+备份配置文件：
 
 ```bash
 tar -czf api-gateway-config-backup-$(date +%Y%m%d).tar.gz \
-  .env /etc/nginx/sites-available/api-gateway
+  config/ /etc/nginx/sites-available/api-gateway
 ```
 
 ### 数据备份
@@ -567,6 +720,19 @@ docker-compose up -d
 git pull
 docker-compose build
 docker-compose up -d
+```
+
+### 配置文件更新
+
+```bash
+# 1. 备份当前配置
+cp config/services.yaml config/services.yaml.bak
+
+# 2. 编辑配置
+vi config/services.yaml
+
+# 3. 重启服务
+docker-compose restart api-gateway
 ```
 
 ### 回滚

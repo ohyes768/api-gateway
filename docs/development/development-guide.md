@@ -5,10 +5,10 @@
 - [开发环境搭建](#开发环境搭建)
 - [项目结构](#项目结构)
 - [代码规范](#代码规范)
-- [开发流程](#开发流程)
+- [配置管理](#配置管理)
 - [测试指南](#测试指南)
 - [调试技巧](#调试技巧)
-- [添加新服务路由](#添加新服务路由)
+- [添加新服务](#添加新服务)
 - [常见开发任务](#常见开发任务)
 
 ---
@@ -67,13 +67,13 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-#### 6. 配置环境变量
+#### 6. 创建配置文件
 
 ```bash
-cp .env.example .env
+cp config/services.yaml.example config/services.yaml
 ```
 
-编辑 `.env` 文件，配置本地后端服务地址。
+编辑 `config/services.yaml`，配置本地后端服务地址。
 
 #### 7. 启动开发服务器
 
@@ -89,29 +89,32 @@ uvicorn src.main:app --host 0.0.0.0 --port 8010 --reload
 
 ```
 api-gateway/
-├── src/                    # 源代码目录
-│   ├── __init__.py         # 包初始化
-│   ├── main.py             # FastAPI 应用入口
-│   ├── config.py           # 配置管理
-│   ├── routes/             # 路由模块
+├── config/                     # 配置目录
+│   ├── services.yaml           # 服务配置文件（核心）
+│   └── services.yaml.example   # 配置文件示例
+├── src/                        # 源代码目录
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI 应用入口
+│   ├── config.py               # 配置加载和验证
+│   ├── models/                 # 数据模型
 │   │   ├── __init__.py
-│   │   ├── health.py       # 健康检查路由
-│   │   ├── a_stock.py      # A股新股信息路由
-│   │   ├── hk_stock.py     # 港股新股信息路由
-│   │   └── news_analysis.py # 新闻分析路由
-│   └── utils/              # 工具模块
+│   │   └── service_config.py   # 服务配置模型（RouteItem, ServiceItem, ServicesConfig）
+│   ├── routes/                 # 路由模块
+│   │   ├── __init__.py
+│   │   └── health.py           # 健康检查路由
+│   └── utils/                  # 工具模块
 │       ├── __init__.py
-│       ├── logger.py       # 日志工具
-│       └── proxy.py        # 代理工具
-├── tests/                  # 测试目录
-├── docs/                   # 文档目录
-├── scripts/                # 运行脚本目录
-├── .env.example            # 环境变量示例
-├── .gitignore              # Git 忽略规则
-├── Dockerfile              # Docker 镜像配置
-├── docker-compose.yml      # Docker Compose 配置
-├── requirements.txt        # Python 依赖列表
-└── README.md               # 项目说明
+│       ├── logger.py           # 日志工具
+│       ├── proxy.py            # 代理工具
+│       └── dynamic_router.py   # 动态路由注册器
+├── tests/                      # 测试目录
+├── docs/                       # 文档目录
+├── scripts/                    # 运行脚本目录
+├── .gitignore                  # Git 忽略规则
+├── Dockerfile                  # Docker 镜像配置
+├── docker-compose.yml          # Docker Compose 配置
+├── requirements.txt            # Python 依赖列表
+└── README.md                   # 项目说明
 ```
 
 ### 核心模块说明
@@ -120,28 +123,46 @@ api-gateway/
 
 FastAPI 应用的主入口文件，负责：
 - 初始化 FastAPI 应用
-- 注册所有路由
+- 动态注册路由（通过 `DynamicRouter`）
 - 配置中间件和异常处理
+
+**启动流程**:
+1. 加载配置文件
+2. 验证服务可达性
+3. 动态注册所有路由
+4. 启动服务
 
 #### config.py - 配置管理
 
 集中管理所有配置项：
-- 从环境变量加载配置
+- 从 YAML 文件加载服务配置
+- 验证配置文件格式
+- 验证服务可达性（健康检查）
 - 提供配置访问接口
-- 管理后端服务 URL 映射
 
-#### routes/ - 路由模块
+#### models/service_config.py - 数据模型
 
-每个路由文件负责：
-- 定义 API 端点
-- 处理请求参数
-- 调用代理工具转发请求
-- 返回响应结果
+定义配置数据模型：
+- `RouteItem`: 路由配置项（path, method, backend_path）
+- `ServiceItem`: 单个服务配置（url, enabled, health_path, routes）
+- `ServicesConfig`: 服务配置集合
+
+使用 Pydantic 进行数据验证。
+
+#### utils/dynamic_router.py - 动态路由注册器
+
+根据配置文件动态注册路由：
+- 读取配置中的所有路由
+- 为每个路由生成处理函数
+- 自动注册到 FastAPI 应用
+
+**无需手动编写路由文件**，所有路由由配置驱动。
 
 #### utils/proxy.py - 代理工具
 
 封装通用的代理请求逻辑：
 - 统一 HTTP 请求处理
+- 支持 GET/POST/PUT/DELETE/PATCH
 - 异常处理和错误响应
 - 日志记录
 
@@ -182,6 +203,8 @@ def _internal_method():
 所有函数必须使用类型注解：
 
 ```python
+from typing import Optional
+
 async def proxy_request(
     service_url: str,
     service_name: str,
@@ -205,7 +228,7 @@ def get_service_url(service_name: str) -> Optional[str]:
         service_name: 服务名称（如 "a_stock", "hk_stock"）
 
     Returns:
-        Optional[str]: 服务 URL，如果服务不存在则返回 None
+        Optional[str]: 服务 URL，如果服务不存在或未启用则返回 None
     """
     pass
 ```
@@ -232,109 +255,62 @@ from src.config import config
 from src.utils.logger import setup_logger
 ```
 
-### FastAPI 最佳实践
-
-#### 1. 路由设计
-
-```python
-# 好的做法：路由命名清晰
-@router.get("/api/a-stock")
-async def get_a_stock() -> dict:
-    pass
-
-# 避免：过于复杂的逻辑
-@router.get("/api/complex")
-async def complex_endpoint():
-    # 复杂的业务逻辑应该放在服务层
-    pass
-```
-
-#### 2. 异常处理
-
-```python
-from fastapi import HTTPException
-
-try:
-    result = await some_operation()
-if CustomError as e:
-    raise HTTPException(
-        status_code=400,
-        detail=f"操作失败: {str(e)}"
-    )
-```
-
-#### 3. 响应模型
-
-使用 Pydantic 定义响应模型：
-
-```python
-from pydantic import BaseModel
-
-class StockResponse(BaseModel):
-    stock_code: str
-    stock_name: str
-    price: float
-```
-
 ---
 
-## 开发流程
+## 配置管理
 
-### 1. 创建功能分支
+### 服务配置文件结构
+
+`config/services.yaml`:
+
+```yaml
+services:
+  # 服务唯一标识
+  <service_name>:
+    url: <backend_service_url>       # 后端服务地址
+    enabled: true|false               # 是否启用
+    health_path: /health              # 健康检查路径
+    routes:                           # 路由列表
+      - path: /api/gateway-path       # 网关路径
+        method: GET|POST|PUT|DELETE   # HTTP 方法
+        backend_path: /api/backend    # 后端路径（可选）
+```
+
+### 配置验证
+
+网关启动时自动验证：
+1. 配置文件格式（YAML 语法）
+2. 必填字段完整性
+3. 服务 URL 格式合法性
+4. 后端服务可达性
+
+### 添加新服务（无需修改代码）
+
+**步骤 1**: 编辑 `config/services.yaml`
+
+```yaml
+services:
+  n8n_webhook:
+    url: http://n8n:5678
+    enabled: true
+    health_path: /healthz
+    routes:
+      - path: /api/webhook/test
+        method: POST
+        backend_path: /webhook/test
+```
+
+**步骤 2**: 重启网关
 
 ```bash
-git checkout -b feature/add-new-route
+docker-compose restart api-gateway
 ```
 
-### 2. 编写代码
-
-- 在 `src/routes/` 中创建新的路由文件
-- 或修改现有文件添加新功能
-
-### 3. 本地测试
+**步骤 3**: 验证新服务
 
 ```bash
-# 启动开发服务器
-uvicorn src.main:app --reload
-
-# 测试 API
-curl http://localhost:8010/health
+curl -X POST http://localhost:8010/api/webhook/test
 ```
-
-### 4. 编写测试
-
-在 `tests/` 目录下编写单元测试：
-
-```python
-import pytest
-from fastapi.testclient import TestClient
-from src.main import app
-
-client = TestClient(app)
-
-def test_health_check():
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-```
-
-### 5. 运行测试
-
-```bash
-pytest tests/
-```
-
-### 6. 提交代码
-
-```bash
-git add .
-git commit -m "feat: 添加新服务路由"
-git push origin feature/add-new-route
-```
-
-### 7. 创建 Pull Request
-
-在 GitHub 上创建 PR，请求代码审查。
 
 ---
 
@@ -355,76 +331,65 @@ uv pip install pytest pytest-asyncio httpx
 ```
 tests/
 ├── __init__.py
-├── test_routes/           # 路由测试
-│   ├── test_health.py
-│   ├── test_a_stock.py
-│   ├── test_hk_stock.py
-│   └── test_news_analysis.py
-├── test_utils/            # 工具测试
+├── test_models/              # 模型测试
+│   ├── test_service_config.py
+│   └── test_route_item.py
+├── test_utils/               # 工具测试
 │   ├── test_proxy.py
-│   └── test_logger.py
-└── conftest.py            # pytest 配置
+│   ├── test_logger.py
+│   └── test_dynamic_router.py
+└── conftest.py               # pytest 配置
 ```
 
 ### 示例测试用例
+
+#### 测试配置模型
+
+```python
+def test_service_item_validation():
+    """测试服务配置验证"""
+    from src.models.service_config import ServiceItem
+
+    # 有效配置
+    service = ServiceItem(
+        url="http://localhost:8000",
+        enabled=True,
+        routes=[]
+    )
+    assert service.url == "http://localhost:8000"
+
+    # 无效 URL
+    with pytest.raises(ValueError):
+        ServiceItem(url="invalid-url")
+
+def test_route_item_validation():
+    """测试路由配置验证"""
+    from src.models.service_config import RouteItem
+
+    route = RouteItem(
+        path="/api/test",
+        method="GET"
+    )
+    assert route.path == "/api/test"
+    assert route.method == "GET"
+```
 
 #### 测试健康检查
 
 ```python
 def test_health_check():
     """测试健康检查端点"""
-    response = client.get("/health")
-    assert response.status_code == 200
+    from fastapi.testclient import TestClient
+    from src.main import app
 
+    client = TestClient(app)
+    response = client.get("/health")
+
+    assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
     assert data["service"] == "api-gateway"
     assert "version" in data
-    assert "timestamp" in data
-```
-
-#### 测试代理功能
-
-```python
-import pytest
-from unittest.mock import patch, AsyncMock
-
-@pytest.mark.asyncio
-async def test_proxy_request_success():
-    """测试代理请求成功场景"""
-    with patch('httpx.AsyncClient.get') as mock_get:
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": "test"}
-        mock_get.return_value = mock_response
-
-        from src.utils.proxy import proxy_request
-        result = await proxy_request(
-            service_url="http://test:8000",
-            service_name="测试服务",
-            path="/api/test"
-        )
-
-        assert result.status_code == 200
-```
-
-#### 测试异常处理
-
-```python
-def test_service_timeout():
-    """测试服务超时异常"""
-    with patch('src.utils.proxy.httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.get.side_effect = \
-            httpx.TimeoutException("Request timeout")
-
-        from src.utils.proxy import proxy_request
-        with pytest.raises(HTTPException) as exc_info:
-            await proxy_request(
-                service_url="http://test:8000",
-                service_name="测试服务"
-            )
-
-        assert exc_info.value.status_code == 503
 ```
 
 ### 运行测试
@@ -434,7 +399,7 @@ def test_service_timeout():
 pytest
 
 # 运行指定文件
-pytest tests/test_routes/test_health.py
+pytest tests/test_models/test_service_config.py
 
 # 显示详细输出
 pytest -v
@@ -449,7 +414,13 @@ pytest --cov=src --cov-report=html
 
 ### 1. 启用调试日志
 
-在 `.env` 文件中设置：
+在环境变量中设置：
+
+```bash
+export LOG_LEVEL=DEBUG
+```
+
+或在 `.env` 文件中：
 
 ```env
 LOG_LEVEL=DEBUG
@@ -483,17 +454,7 @@ LOG_LEVEL=DEBUG
 }
 ```
 
-### 3. 添加断点
-
-在代码中添加断点：
-
-```python
-import pdb; pdb.set_trace()  # 传统方式
-```
-
-或使用 IDE 的可视化断点功能。
-
-### 4. 查看日志
+### 3. 查看日志
 
 ```bash
 # Docker 环境
@@ -503,14 +464,14 @@ docker-compose logs -f api-gateway
 # 日志直接输出到控制台
 ```
 
-### 5. 使用 FastAPI 自动文档
+### 4. 使用 FastAPI 自动文档
 
 访问交互式 API 文档：
 
 - Swagger UI: `http://localhost:8010/docs`
 - ReDoc: `http://localhost:8010/redoc`
 
-### 6. 网络调试
+### 5. 网络调试
 
 ```bash
 # 测试后端服务连通性
@@ -527,75 +488,43 @@ curl -X POST http://localhost:8010/api/news-analysis \
 
 ---
 
-## 添加新服务路由
+## 添加新服务
 
-### 步骤 1: 在 config.py 中注册服务
+### 方式一：通过配置文件（推荐）
 
-编辑 `src/config.py`，在 `SERVICES` 字典中添加新服务：
+**无需修改代码**，仅需三步：
 
-```python
-SERVICES: Dict[str, str] = {
-    "a_stock": os.getenv("A_STOCK_SERVICE_URL", "http://a-stock-service:8001"),
-    "hk_stock": os.getenv("HK_STOCK_SERVICE_URL", "http://hk-stock-service:8002"),
-    "news_analysis": os.getenv("NEWS_ANALYSIS_SERVICE_URL", "http://news-analysis-service:8030"),
-    "new_service": os.getenv("NEW_SERVICE_URL", "http://new-service:8004"),  # 新增
-}
+#### 步骤 1: 编辑配置文件
+
+`config/services.yaml`:
+
+```yaml
+services:
+  new_service:
+    url: http://new-service:8000
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/new-endpoint
+        method: POST
+        backend_path: /api/real-endpoint
 ```
 
-### 步骤 2: 在 .env.example 中添加配置
-
-```env
-NEW_SERVICE_URL=http://new-service:8004
-```
-
-### 步骤 3: 创建路由文件
-
-创建 `src/routes/new_service.py`:
-
-```python
-"""
-新服务路由
-"""
-
-from fastapi import APIRouter
-
-from src.config import config
-from src.utils.proxy import proxy_request
-from src.utils.logger import setup_logger
-
-router = APIRouter()
-logger = setup_logger()
-
-
-@router.get("/api/new-service")
-async def get_new_service() -> dict:
-    """代理新服务请求"""
-    return await proxy_request(
-        service_url=config.get_service_url("new_service"),
-        service_name="新服务",
-        path="/api/data"
-    )
-```
-
-### 步骤 4: 在 main.py 中注册路由
-
-编辑 `src/main.py`:
-
-```python
-from src.routes import health, a_stock, hk_stock, news_analysis, new_service
-
-app.include_router(health.router)
-app.include_router(a_stock.router)
-app.include_router(hk_stock.router)
-app.include_router(news_analysis.router)
-app.include_router(new_service.router)  # 新增
-```
-
-### 步骤 5: 测试新路由
+#### 步骤 2: 重启网关
 
 ```bash
-curl http://localhost:8010/api/new-service
+docker-compose restart api-gateway
 ```
+
+#### 步骤 3: 验证
+
+```bash
+curl -X POST http://localhost:8010/api/new-endpoint
+```
+
+### 方式二：扩展功能（需要代码修改）
+
+如果需要添加特殊逻辑（如参数验证、请求转换），可以扩展 `dynamic_router.py` 或创建自定义工具函数。
 
 ---
 
@@ -619,7 +548,7 @@ LOG_LEVEL=DEBUG  # 或 INFO, WARNING, ERROR
 
 ### 添加请求头转发
 
-编辑 `src/utils/proxy.py`，在请求中添加自定义头：
+编辑 `src/utils/dynamic_router.py`，在代理请求中添加自定义头：
 
 ```python
 headers = {
@@ -627,34 +556,16 @@ headers = {
     "X-Request-ID": generate_request_id()
 }
 
-response = await client.get(
-    f"{service_url}{path}",
-    params=params,
+response = await client.post(
+    url,
+    json=json_data,
     headers=headers
 )
 ```
 
 ### 添加请求验证
 
-在路由中使用 Pydantic 验证请求参数：
-
-```python
-from pydantic import BaseModel, Field
-
-class NewsRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=10000)
-    date: str | None = Field(None, regex=r"\d{4}-\d{2}-\d{2}")
-
-@router.post("/api/news-analysis")
-async def analyze_news(request: NewsRequest) -> dict:
-    return await proxy_request(
-        service_url=config.get_service_url("news_analysis"),
-        service_name="新闻分析",
-        path="/api/analyze",
-        method="POST",
-        json_data=request.dict()
-    )
-```
+由于使用动态路由，请求验证需要在代理层面实现。可以扩展 `dynamic_router.py` 添加通用的验证逻辑。
 
 ### 添加速率限制
 
@@ -664,31 +575,22 @@ async def analyze_news(request: NewsRequest) -> dict:
 uv pip install slowapi
 ```
 
+在 `main.py` 中添加：
+
 ```python
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-
-@router.get("/api/a-stock")
-@limiter.limit("10/minute")
-async def get_a_stock(request: Request) -> dict:
-    pass
 ```
 
-### 添加认证中间件
+在 `dynamic_router.py` 的路由处理函数中添加：
 
 ```python
-from fastapi import Header, HTTPException
-
-async def verify_api_key(x_api_key: str = Header(...)):
-    if x_api_key != "expected-key":
-        raise HTTPException(status_code=403, detail="Invalid API Key")
-
-@router.get("/api/protected", dependencies=[Depends(verify_api_key)])
-async def protected_route() -> dict:
-    pass
+@limiter.limit("10/minute")
+async def route_handler(request: Request):
+    # ...
 ```
 
 ---
@@ -704,7 +606,6 @@ async def protected_route() -> dict:
 - [ ] 添加了相应的测试用例
 - [ ] 测试全部通过
 - [ ] 日志级别设置正确
-- [ ] 环境变量已更新到 `.env.example`
 - [ ] 没有硬编码的配置值
 - [ ] 异常处理完善
 - [ ] 没有引入安全漏洞
@@ -766,15 +667,19 @@ A: 启用 DEBUG 日志级别，查看详细的请求和响应信息。
 
 ### Q: 如何处理后端服务不可用？
 
-A: 代理工具会自动捕获异常并返回 503 错误，可以在 `proxy.py` 中添加重试逻辑。
+A: 代理工具会自动捕获异常并返回 503 错误，可以在配置中设置 `enabled: false` 临时禁用服务。
 
-### Q: 如何添加新的 HTTP 方法（PUT, DELETE）？
+### Q: 如何添加新的 HTTP 方法？
 
-A: 在 `proxy.py` 中的 `proxy_request` 函数已支持 PUT 和 DELETE，直接使用即可。
+A: 在配置文件的 `routes` 中指定 `method` 字段，支持 GET/POST/PUT/DELETE/PATCH。
 
 ### Q: 如何监控 API 性能？
 
 A: 可以集成 Prometheus 或添加自定义的性能日志记录。
+
+### Q: 配置文件修改后需要重启吗？
+
+A: 是的，当前版本需要重启服务以加载新配置。
 
 ---
 

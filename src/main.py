@@ -1,7 +1,7 @@
 """
 API Gateway - FastAPI 主入口
 
-通用 API 网关，提供统一入口，路由转发到后端微服务
+通用 API 网关，提供统一入口，根据配置动态路由转发到后端微服务
 """
 
 import os
@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.config import config
-from src.routes import a_stock, hk_stock, news_analysis, health
+from src.routes import health
+from src.utils.dynamic_router import DynamicRouter
 from src.utils.logger import setup_logger
 
 # 常量定义
@@ -31,11 +32,8 @@ app = FastAPI(
 logger = setup_logger(level=config.LOG_LEVEL)
 
 
-# 注册路由
+# 注册健康检查路由（保留，因为不需要动态配置）
 app.include_router(health.router, tags=["健康检查"])
-app.include_router(a_stock.router, tags=["A股新股信息"])
-app.include_router(hk_stock.router, tags=["港股新股信息"])
-app.include_router(news_analysis.router, tags=["新闻分析"])
 
 
 # 全局异常处理器
@@ -74,7 +72,14 @@ async def global_exception_handler(request, exc) -> JSONResponse:
 async def startup_event():
     """应用启动时的初始化"""
     logger.info(f"🚀 {config.APP_NAME} v{config.VERSION} 启动中...")
-    logger.info(f"📋 已注册服务: {list(config.SERVICES.keys())}")
+
+    # 动态注册所有路由
+    dynamic_router = DynamicRouter(app, config.services_config)
+    dynamic_router.register_all_routes()
+
+    # 记录已注册的服务
+    enabled_services = config.services_config.get_enabled_services()
+    logger.info(f"📋 已注册服务: {list(enabled_services.keys())}")
 
 
 @app.on_event("shutdown")

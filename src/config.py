@@ -28,17 +28,16 @@ class Config:
 
     def __init__(self, config_path: str = "config/services.yaml"):
         """
-        加载并验证配置
+        加载配置
 
         Args:
             config_path: 配置文件路径
 
         Raises:
             FileNotFoundError: 配置文件不存在
-            ValueError: 配置格式错误或服务不可达
+            ValueError: 配置格式错误
         """
         self._load_services_config(config_path)
-        asyncio.run(self._validate_services_reachability())
 
     def _load_services_config(self, config_path: str):
         """加载服务配置文件"""
@@ -72,7 +71,7 @@ class Config:
         except Exception as e:
             raise ValueError(f"配置格式错误: {e}")
 
-    async def _validate_services_reachability(self):
+    async def validate_services_reachability(self):
         """验证服务可达性（并发检查）"""
         async with httpx.AsyncClient(timeout=5.0) as client:
             tasks = []

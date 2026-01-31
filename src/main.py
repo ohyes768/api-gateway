@@ -73,6 +73,14 @@ async def startup_event():
     """应用启动时的初始化"""
     logger.info(f"🚀 {config.APP_NAME} v{config.VERSION} 启动中...")
 
+    # 验证服务可达性
+    try:
+        await config.validate_services_reachability()
+        logger.info("✅ 所有服务可达性检查通过")
+    except ValueError as e:
+        logger.error(f"❌ 服务可达性检查失败: {e}")
+        # 注意：这里不抛出异常，允许应用启动但记录错误
+
     # 动态注册所有路由
     dynamic_router = DynamicRouter(app, config.services_config)
     dynamic_router.register_all_routes()

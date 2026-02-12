@@ -8,9 +8,9 @@ services:
     enabled: true
     health_path: /health
     routes:
-      - path: /api/news-analysis
+      - path: /api/news-analysis/markdown
         method: POST
-        backend_path: /api/analyze
+        backend_path: /analyze/markdown
 
   # A股新股信息服务
   a_stock:

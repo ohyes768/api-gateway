@@ -57,4 +57,4 @@ services:
     routes:
       - path: /api/douyin/process
         method: POST
-        backend_path: /api/process
+        backend_path: /api/process/async

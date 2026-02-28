@@ -55,6 +55,6 @@ services:
     enabled: true
     health_path: /health
     routes:
-      - path: /api/douyin/process
+      - path: /api/douyin/process/async
         method: POST
         backend_path: /api/process/async

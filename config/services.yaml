@@ -2,13 +2,13 @@
 # 修改此文件后需要重启网关服务
 
 services:
-  # 新闻分析服务
+ # 新闻分析服务
   news_analysis:
     url: http://news-analysis-service:8030
     enabled: true
     health_path: /health
     routes:
-      - path: /api/news-analysis/markdown
+      - path: /api/news-analysis
         method: POST
         backend_path: /analyze/markdown
 
@@ -31,3 +31,30 @@ services:
       - path: /api/hk-stock
         method: GET
         backend_path: /api/stocks
+
+  rss_notice:
+    url: http://rss-notice-service:8020
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/rss-notice/check
+        method: GET
+        backend_path: /api/rss/check
+
+      - path: /api/rss-notice/refresh
+        method: POST
+        backend_path: /api/rss/refresh
+
+      - path: /api/rss-notice/sources
+        method: GET
+        backend_path: /api/rss/sources
+
+  # 抖音音频处理服务
+  douyin_processor:
+    url: http://douyin-processor:8093
+    enabled: true
+    health_path: /health
+    routes:
+      - path: /api/douyin/process
+        method: POST
+        backend_path: /api/process
